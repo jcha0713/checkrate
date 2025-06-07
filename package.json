@@ -1,0 +1,20 @@
+{
+  "name": "currency-cli",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@effect/language-service": "^0.19.0",
+    "@types/bun": "^1.2.14"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@effect/cli": "^0.61.5",
+    "@effect/platform": "^0.82.5",
+    "@effect/platform-bun": "^0.65.2",
+    "@effect/schema": "^0.75.5",
+    "effect": "^3.15.3"
+  }
+}
