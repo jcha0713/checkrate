@@ -10,19 +10,23 @@ export const CurrencyCodeSchema = Schema.Uppercase.pipe(
 });
 
 export const CurrencyRateResponseSchema = Schema.Struct({
-  date: Schema.String,
-  time_last_updated: Schema.Number,
-  base: Schema.String,
+  time_last_update_unix: Schema.Number,
+  time_next_update_unix: Schema.Number,
+  base_code: Schema.String,
   rates: Schema.Record({
     key: Schema.String,
     value: Schema.Number,
   }),
 });
 
+export type CurrencyRateResponse = Schema.Schema.Type<
+  typeof CurrencyRateResponseSchema
+>;
+
 export const CachedRateSchema = Schema.Struct({
   key: Schema.String, // e.g., "USD"
   rateData: Schema.String, // JSON stringified rate data
-  cachedAt: Schema.Number, // Unix timestamp when cached
+  nextUpdateAt: Schema.Number, // Unix timestamp when to update
 }).annotations({
   message: () => "Does not match with cached value",
 });

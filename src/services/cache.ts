@@ -1,4 +1,4 @@
-import { Effect, Context, Layer, Data, Option } from "effect";
+import { Effect, Context, Layer, Data, Option, Clock } from "effect";
 import { Schema } from "@effect/schema";
 import { Database } from "bun:sqlite";
 import type { ParseError } from "@effect/schema/ParseResult";
@@ -13,7 +13,11 @@ interface CacheService {
   get: (
     key: string,
   ) => Effect.Effect<Option.Option<CachedRate>, ParseError, never>;
-  set: (key: string, rateData: string) => Effect.Effect<void, DatabaseError>;
+  set: (
+    key: string,
+    rateData: string,
+    nextUpdateAt: number,
+  ) => Effect.Effect<void, DatabaseError>;
   clear: () => Effect.Effect<void, DatabaseError>;
 }
 
@@ -32,7 +36,7 @@ const initDb = (
         CREATE TABLE IF NOT EXISTS cache (
           key TEXT PRIMARY KEY,
           rateData TEXT NOT NULL,
-          cachedAt INTEGER NOT NULL
+          nextUpdateAt INTEGER NOT NULL
         )
       `;
 
@@ -51,6 +55,19 @@ const initDb = (
   });
 };
 
+const getCacheTimingInfo = (cachedEntry: typeof CachedRateSchema.Type) =>
+  Clock.currentTimeMillis.pipe(
+    Effect.map((millis) => {
+      const now = Math.floor(millis / 1000);
+      const nextUpdateAt = cachedEntry.nextUpdateAt;
+      return {
+        now,
+        nextUpdateAt,
+        shouldRefresh: now >= nextUpdateAt,
+      };
+    }),
+  );
+
 export const CacheServiceLive = Layer.effect(
   CacheService,
   Effect.gen(function* () {
@@ -68,28 +85,40 @@ export const CacheServiceLive = Layer.effect(
           return Option.none();
         }
 
-        const validated = yield* Schema.decodeUnknown(CachedRateSchema)(result);
+        const validatedResult =
+          yield* Schema.decodeUnknown(CachedRateSchema)(result);
+
+        const timingInfo = yield* getCacheTimingInfo(validatedResult);
+
+        if (timingInfo.shouldRefresh) {
+          yield* Effect.logDebug(
+            `Cache Refresh: Now: ${timingInfo.now} >= Next Update: ${timingInfo.nextUpdateAt}`,
+          );
+          return Option.none();
+        }
 
         yield* Effect.logDebug(`Cache hit for key: ${from}`);
 
-        return Option.some(validated);
+        return Option.some(validatedResult);
       });
     };
 
-    const set = (key: string, rateData: string) => {
+    const set = (key: string, rateData: string, nextUpdateAt: number) => {
       return Effect.gen(function* () {
         yield* Effect.logDebug(`Setting cache for key: ${key}`);
 
         try {
           const insertSQL = `
-            INSERT OR REPLACE INTO cache (key, rateData, cachedAt)
-            VALUES ($key, $rateData, $now)
+            INSERT OR REPLACE INTO cache (key, rateData, nextUpdateAt)
+            VALUES ($key, $rateData, $nextUpdateAt)
           `;
 
-          const now = Math.floor(Date.now());
-
           const query = db.query(insertSQL);
-          query.run({ $key: key, $rateData: rateData, $now: now });
+          query.run({
+            $key: key,
+            $rateData: rateData,
+            $nextUpdateAt: nextUpdateAt,
+          });
           yield* Effect.logInfo(`Cache updated for key: ${key}`);
         } catch (error) {
           return yield* Effect.fail(

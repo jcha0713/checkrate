@@ -1,14 +1,10 @@
-import { Effect, Context, Layer, Data } from "effect";
+import { Effect, Context, Layer, Data, Option } from "effect";
 import { Schema } from "@effect/schema";
 import { HttpClient } from "@effect/platform";
-import {
-  CurrencyCodeSchema,
-  CurrencyRateResponseSchema,
-  type CachedRate,
-} from "../types";
+import { CurrencyCodeSchema, CurrencyRateResponseSchema } from "../types";
 import type { HttpClientError } from "@effect/platform/HttpClientError";
 import type { ParseError } from "@effect/schema/ParseResult";
-import { CacheService, DatabaseError } from "./cache";
+import { type DatabaseError, CacheService } from "./cache";
 
 class UnsupportedCodeError extends Data.TaggedError("UnsupportedCodeError")<{
   currency: string;
@@ -18,18 +14,39 @@ class ApiLimitError extends Data.TaggedError("ApiLimitError")<{
   retryAfter: number;
 }> {}
 
-type ExchangeRateError = UnsupportedCodeError | ApiLimitError | HttpClientError;
+export class InvalidFromCurrencyCodeError extends Data.TaggedError(
+  "InvalidFromCurrencyCodeError",
+)<{
+  readonly currency: string;
+}> {}
+
+export class InvalidToCurrencyCodeError extends Data.TaggedError(
+  "InvalidToCurrencyCodeError",
+)<{
+  readonly currency: string;
+}> {}
+
+type ExternalError = UnsupportedCodeError | ApiLimitError | HttpClientError;
+
+type ClientSideError = ParseError;
 
 interface ExchangeRateService {
   getRate: (
     from: string,
     to: string,
-  ) => Effect.Effect<number, ExchangeRateError | ParseError | DatabaseError>;
+  ) => Effect.Effect<
+    number,
+    | ExternalError
+    | ClientSideError
+    | InvalidFromCurrencyCodeError
+    | InvalidToCurrencyCodeError
+    | DatabaseError
+  >;
   getRates: (
     from: string,
   ) => Effect.Effect<
     Record<string, number>,
-    ExchangeRateError | ParseError | DatabaseError
+    ExternalError | ParseError | InvalidFromCurrencyCodeError | DatabaseError
   >;
 }
 
@@ -45,11 +62,30 @@ export const ExchangeRateServiceLive = Layer.effect(
 
     const fetchRates = (from: string) => {
       return Effect.gen(function* () {
-        const currencyCode =
-          yield* Schema.decodeUnknown(CurrencyCodeSchema)(from);
+        const currencyCode = yield* Schema.decodeUnknown(CurrencyCodeSchema)(
+          from,
+        ).pipe(
+          Effect.mapError(
+            () =>
+              new InvalidFromCurrencyCodeError({
+                currency: from,
+              }),
+          ),
+        );
+
+        const cachedResult = yield* cache.get(from);
+
+        if (Option.isSome(cachedResult)) {
+          yield* Effect.logDebug("Use cached value");
+
+          const parsed = Schema.parseJson(CurrencyRateResponseSchema);
+          const decode = Schema.decodeUnknown(parsed);
+
+          return yield* decode(cachedResult.value.rateData);
+        }
 
         const url = new URL(
-          `https://api.exchangerate-api.com/v4/latest/${currencyCode}`,
+          `https://open.er-api.com/v6/latest/${currencyCode}`,
         );
 
         const response = yield* client.get(url);
@@ -63,7 +99,11 @@ export const ExchangeRateServiceLive = Layer.effect(
           json,
         );
 
-        yield* cache.set(from, JSON.stringify(result.rates));
+        yield* cache.set(
+          from,
+          JSON.stringify(result),
+          result.time_next_update_unix,
+        );
         return result;
       });
     };
@@ -71,8 +111,24 @@ export const ExchangeRateServiceLive = Layer.effect(
     const getRate = (from: string, to: string) => {
       return Effect.gen(function* () {
         const result = yield* fetchRates(from);
-        const resultCode = yield* Schema.decodeUnknown(CurrencyCodeSchema)(to);
-        return result.rates[resultCode] ?? -1;
+        const resultCode = yield* Schema.decodeUnknown(CurrencyCodeSchema)(
+          to,
+        ).pipe(
+          Effect.mapError(
+            () =>
+              new InvalidToCurrencyCodeError({
+                currency: to,
+              }),
+          ),
+        );
+        const rate = result.rates[resultCode];
+
+        if (!rate) {
+          return yield* Effect.fail(
+            new InvalidToCurrencyCodeError({ currency: to }),
+          );
+        }
+        return rate;
       });
     };
 
