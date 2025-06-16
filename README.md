@@ -1,4 +1,4 @@
-# currency-cli
+# checkrate
 
 To install dependencies:
 

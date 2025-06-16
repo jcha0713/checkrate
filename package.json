@@ -1,5 +1,5 @@
 {
-  "name": "currency-cli",
+  "name": "checkrate",
   "module": "index.ts",
   "type": "module",
   "private": true,

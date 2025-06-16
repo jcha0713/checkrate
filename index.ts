@@ -97,7 +97,7 @@ const currencyCommand = Command.make(
 );
 
 const cli = Command.run(currencyCommand, {
-  name: "Currency Converter CLI",
+  name: "checkrate",
   version: "v0.0.1",
 });
 
