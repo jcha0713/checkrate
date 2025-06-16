@@ -68,10 +68,9 @@ const getCacheTimingInfo = (cachedEntry: typeof CachedRateSchema.Type) =>
     }),
   );
 
-export const CacheServiceLive = Layer.effect(
-  CacheService,
+export const createCacheService = (dbPath: string) =>
   Effect.gen(function* () {
-    const db = yield* initDb("./cache.db");
+    const db = yield* initDb(dbPath);
 
     const get = (from: string) => {
       return Effect.gen(function* () {
@@ -155,5 +154,9 @@ export const CacheServiceLive = Layer.effect(
       set,
       clear,
     };
-  }),
+  });
+
+export const CacheServiceLive = Layer.effect(
+  CacheService,
+  createCacheService("./cache.db"),
 );
