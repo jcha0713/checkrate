@@ -102,15 +102,14 @@ const cli = Command.run(currencyCommand, {
 });
 
 cli(process.argv).pipe(
+  Effect.catchAll((error) =>
+    Console.error(`${error._tag}: --help to see the correct usage`),
+  ),
+
   Effect.provide(ExchangeRateServiceLive),
   Effect.provide(CacheServiceLive),
   Effect.provide(FetchHttpClient.layer),
   Effect.provide(BunContext.layer),
   Effect.provide(CliConfig.layer({ showBuiltIns: false })),
-  Effect.catchIf(
-    (error) => error._tag !== "DatabaseError",
-    () =>
-      Console.error("Invalid command format: Use --help for more information"),
-  ),
   BunRuntime.runMain,
 );
