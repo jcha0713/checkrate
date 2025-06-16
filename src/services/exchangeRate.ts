@@ -1,7 +1,11 @@
 import { Effect, Context, Layer, Data, Option } from "effect";
 import { Schema } from "@effect/schema";
 import { HttpClient } from "@effect/platform";
-import { CurrencyCodeSchema, CurrencyRateResponseSchema } from "../types";
+import {
+  CurrencyCodeSchema,
+  CurrencyRateSuccessResponseSchema,
+  ServerResponseSchema,
+} from "../types";
 import type { HttpClientError } from "@effect/platform/HttpClientError";
 import type { ParseError } from "@effect/schema/ParseResult";
 import { type DatabaseError, CacheService } from "./cache";
@@ -78,7 +82,7 @@ export const ExchangeRateServiceLive = Layer.effect(
         if (Option.isSome(cachedResult)) {
           yield* Effect.logDebug("Use cached value");
 
-          const parsed = Schema.parseJson(CurrencyRateResponseSchema);
+          const parsed = Schema.parseJson(CurrencyRateSuccessResponseSchema);
           const decode = Schema.decodeUnknown(parsed);
 
           return yield* decode(cachedResult.value.rateData);
@@ -91,20 +95,19 @@ export const ExchangeRateServiceLive = Layer.effect(
         const response = yield* client.get(url);
         const json = yield* response.json;
 
-        if (response.status !== 200) {
+        const decoded = Schema.decodeUnknownSync(ServerResponseSchema)(json);
+
+        if (decoded.result === "error") {
           return yield* new UnsupportedCodeError({ currency: from });
         }
 
-        const result = Schema.decodeUnknownSync(CurrencyRateResponseSchema)(
-          json,
-        );
-
         yield* cache.set(
           from,
-          JSON.stringify(result),
-          result.time_next_update_unix,
+          JSON.stringify(decoded),
+          decoded.time_next_update_unix,
         );
-        return result;
+
+        return decoded;
       });
     };
 

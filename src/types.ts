@@ -9,7 +9,8 @@ export const CurrencyCodeSchema = Schema.Uppercase.pipe(
     `Error: Check out 'https://www.exchangerate-api.com/docs/supported-currencies' to see a list of valid currency codes`,
 });
 
-export const CurrencyRateResponseSchema = Schema.Struct({
+export const CurrencyRateSuccessResponseSchema = Schema.Struct({
+  result: Schema.Literal("success"),
   time_last_update_unix: Schema.Number,
   time_next_update_unix: Schema.Number,
   base_code: Schema.String,
@@ -19,8 +20,18 @@ export const CurrencyRateResponseSchema = Schema.Struct({
   }),
 });
 
+export const CurrencyRateFailedResponseSchema = Schema.Struct({
+  result: Schema.Literal("error"),
+  "error-type": Schema.String,
+});
+
+export const ServerResponseSchema = Schema.Union(
+  CurrencyRateSuccessResponseSchema,
+  CurrencyRateFailedResponseSchema,
+);
+
 export type CurrencyRateResponse = Schema.Schema.Type<
-  typeof CurrencyRateResponseSchema
+  typeof CurrencyRateSuccessResponseSchema
 >;
 
 export const CachedRateSchema = Schema.Struct({
